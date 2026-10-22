@@ -122,6 +122,10 @@ svg.spark{width:100%;height:120px;display:block}
   padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
 .tabs button{border:0;background:none;padding:8px 2px;border-radius:8px;font-family:var(--display);font-weight:800;font-size:15px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
 .tabs button[aria-selected="true"]{color:var(--accent);background:var(--bg)}
+.res{display:flex;flex-direction:column;gap:6px}
+.res button{text-align:left;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:9px 11px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.res b{font-weight:600;font-size:14px;overflow-wrap:anywhere}.res span{font-size:12px;color:var(--muted)}
+.picked{border:2px solid var(--accent);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(76px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--surface);padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;z-index:30}
 @media (max-width:380px){.form{grid-template-columns:1fr 64px 56px}.form .btn{grid-column:1/-1}.big{font-size:54px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -169,7 +173,7 @@ const LIMIT = [
 ];
 
 /* ---------- State ---------- */
-const DEFAULTS = {base:1700, protein:180, gymDays:[1,4], marathon:"", goalWeight:165, goalDate:"2026-12-31", startWeight:196, startDate:"2026-09-15"};
+const DEFAULTS = {fdcKey:"", base:1700, protein:180, gymDays:[1,4], marathon:"", goalWeight:165, goalDate:"2026-12-31", startWeight:196, startDate:"2026-09-15"};
 let settings = {...DEFAULTS};
 const days = {}; // date -> {date,foods,steps,runMi,done,weight}
 let tab = "today";
@@ -305,6 +309,8 @@ function renderToday(){
       ${(+d.runMi||0)>=4?`<div class="callout">Your target went up by ${t.extra} for the run. That's the extra. Hungry beyond that after a long run? Eat protein and volume (chicken, salad, yogurt), not mango or bagels.</div>`:""}
     </section>
 
+    <section class="panel" id="lookup"></section>
+
     <section class="panel">
       <h3>Log food</h3>
       <form class="form" id="addForm" autocomplete="off">
@@ -332,6 +338,7 @@ function renderToday(){
   view.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{d.foods.splice(+b.dataset.rm,1);saveDay(k);render()});
   view.querySelectorAll("[data-done]").forEach(b=>b.onclick=()=>{const x=b.dataset.done;d.done=d.done.includes(x)?d.done.filter(y=>y!==x):[...d.done,x];saveDay(k);render()});
   document.getElementById("addForm").onsubmit=e=>{e.preventDefault();const n=document.getElementById("fName").value.trim();if(!n)return;addFood({n,k:document.getElementById("fK").value,p:document.getElementById("fP").value})};
+  renderLookup(k);
   const rm=document.getElementById("runMi"); rm.onchange=()=>{d.runMi=Math.max(0,+rm.value||0);saveDay(k);render()};
   const st=document.getElementById("steps"); st.onchange=()=>{d.steps=Math.max(0,Math.round(+st.value||0));saveDay(k)};
 }
@@ -456,6 +463,8 @@ function renderSetup(){
       <label class="field"><span class="label">Start weight</span><input id="sSW" type="number" inputmode="decimal" value="${settings.startWeight}"></label>
       <label class="field"><span class="label">Cut started</span><input id="sSD" type="date" value="${settings.startDate}"></label>
     </div>
+    <label class="field"><span class="label">Food lookup key (optional)</span><input id="sKey" type="text" autocomplete="off" value="${esc(settings.fdcKey||"")}" placeholder="Leave blank to use the free shared key"></label>
+    <p class="note">Without a key you get about 30 lookups an hour. A free key from api.data.gov/signup removes the limit. Paste it here.</p>
     <p class="note">Run days add calories on their own: +150 short run, +250 for 4–8 mi, +400 for 8+ mi. Steps are entered by hand from your phone's Health app.</p>
     <p class="note">Saving on this phone.</p>
   </section>
@@ -466,12 +475,99 @@ function renderSetup(){
     <div class="row"><button class="btn ghost" id="bLoad" type="button">Restore from backup</button></div>
   </section></div>`;
   const bind=(id,key,num)=>{const el=document.getElementById(id);el.onchange=()=>{settings[key]=num?(+el.value||DEFAULTS[key]):el.value;saveSettings();toast("Saved")}};
-  bind("sMar","marathon");bind("sBase","base",1);bind("sPro","protein",1);bind("sGW","goalWeight",1);bind("sGD","goalDate");bind("sSW","startWeight",1);bind("sSD","startDate");
+  bind("sMar","marathon");bind("sBase","base",1);bind("sPro","protein",1);bind("sGW","goalWeight",1);bind("sGD","goalDate");bind("sSW","startWeight",1);bind("sSD","startDate");bind("sKey","fdcKey");
   document.getElementById("bCopy").onclick=()=>{const t=JSON.stringify({settings,days});const ta=document.getElementById("bText");
     navigator.clipboard.writeText(t).then(()=>toast("Backup copied")).catch(()=>{ta.value=t;ta.select();toast("Select all and copy")})};
   document.getElementById("bLoad").onclick=()=>{try{const o=JSON.parse(document.getElementById("bText").value);if(!o.settings||!o.days)throw 0;
     Object.assign(settings,o.settings);Object.keys(days).forEach(k=>delete days[k]);Object.assign(days,o.days);lsSave();render();toast("Restored")}catch(e){toast("That backup didn't work. Paste the whole thing.")}};
   view.querySelectorAll("[data-gd]").forEach(b=>b.onclick=()=>{const i=+b.dataset.gd;settings.gymDays=settings.gymDays.includes(i)?settings.gymDays.filter(x=>x!==i):[...settings.gymDays,i].sort();saveSettings();render()});
+}
+
+/* ---------- Food lookup: USDA FoodData Central + Open Food Facts ---------- */
+const LK={q:"",res:[],busy:false,err:"",sel:null,qty:1,unit:0};
+function tc(t){t=String(t||"");return t===t.toUpperCase()?t.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()):t}
+function nf(list,ids,nums){for(const n of list||[]){if(ids.includes(n.nutrientId)||nums.includes(String(n.nutrientNumber||"")))return +n.value||0}return null}
+async function searchUSDA(q){
+  const key=(settings.fdcKey||"").trim()||"DEMO_KEY";
+  const u="https://api.nal.usda.gov/fdc/v1/foods/search?api_key="+encodeURIComponent(key)+"&query="+encodeURIComponent(q)+"&pageSize=12&dataType="+encodeURIComponent("Survey (FNDDS),Branded,Foundation");
+  const r=await fetch(u); if(r.status===429)throw new Error("limit"); if(!r.ok)throw new Error("usda");
+  const j=await r.json();
+  return (j.foods||[]).map(f=>{
+    const k100=nf(f.foodNutrients,[1008,2047,2048],["208","957","958"]), p100=nf(f.foodNutrients,[1003],["203"]);
+    const units=[]; const su=String(f.servingSizeUnit||"").toLowerCase();
+    const g=(f.servingSize&&(su==="g"||su==="grm"||su==="ml"||su==="mlt"))?+f.servingSize:null;
+    if(f.dataType==="Branded"){
+      const ln=f.labelNutrients||{};
+      const lbl="1 serving"+(f.householdServingFullText?" ("+f.householdServingFullText+")":"")+(g?" · "+Math.round(g)+" g":"");
+      if(ln.calories)units.push({label:lbl,k:+ln.calories.value||0,p:ln.protein?+ln.protein.value||0:(g&&p100!=null?p100*g/100:0)});
+      else if(g&&k100!=null)units.push({label:lbl,k:k100*g/100,p:(p100||0)*g/100});
+    }
+    (f.foodMeasures||[]).filter(m=>m.gramWeight&&m.disseminationText&&!/not specified/i.test(m.disseminationText)).slice(0,5)
+      .forEach(m=>{if(k100!=null)units.push({label:m.disseminationText+" · "+Math.round(m.gramWeight)+" g",k:k100*m.gramWeight/100,p:(p100||0)*m.gramWeight/100})});
+    if(k100!=null){units.push({label:"100 g",k:k100,p:p100||0});units.push({label:"1 g",k:k100/100,p:(p100||0)/100})}
+    return {name:tc(f.description),brand:tc(f.brandName||f.brandOwner||""),src:"USDA",units};
+  }).filter(x=>x.units.length);
+}
+async function searchOFF(q){
+  const u="https://world.openfoodfacts.org/cgi/search.pl?search_terms="+encodeURIComponent(q)+"&search_simple=1&action=process&json=1&page_size=8&fields=product_name,brands,nutriments,serving_size,serving_quantity";
+  const r=await fetch(u); if(!r.ok)throw new Error("off"); const j=await r.json();
+  return (j.products||[]).map(p=>{
+    const n=p.nutriments||{}, sq=+p.serving_quantity||0, k100=n["energy-kcal_100g"], p100=n.proteins_100g, units=[];
+    const lbl="1 serving"+(p.serving_size?" ("+p.serving_size+")":"");
+    if(n["energy-kcal_serving"]!=null)units.push({label:lbl,k:+n["energy-kcal_serving"],p:+(n.proteins_serving||0)});
+    else if(sq&&k100!=null)units.push({label:lbl,k:k100*sq/100,p:(p100||0)*sq/100});
+    if(k100!=null){units.push({label:"100 g",k:+k100,p:+(p100||0)});units.push({label:"1 g",k:k100/100,p:(p100||0)/100})}
+    return {name:p.product_name||"",brand:String(p.brands||"").split(",")[0],src:"Open Food Facts",units};
+  }).filter(x=>x.name&&x.units.length);
+}
+async function runLookup(raw){
+  const m=raw.match(/^\s*(\d+(?:\.\d+)?)\s*(?:x\s+)?(.+)$/i);
+  LK.qty=m?+m[1]:1; LK.q=(m?m[2]:raw).trim(); LK.sel=null; LK.err=""; LK.res=[]; LK.busy=true; renderLookup();
+  const [a,b]=await Promise.allSettled([searchUSDA(LK.q),searchOFF(LK.q)]);
+  LK.busy=false;
+  LK.res=[...(a.status==="fulfilled"?a.value.slice(0,8):[]),...(b.status==="fulfilled"?b.value.slice(0,6):[])];
+  if(!LK.res.length){
+    LK.err=a.status==="rejected"&&a.reason&&a.reason.message==="limit"?"Hit the free lookup limit. Add your own free key in Setup to remove it.":
+      (a.status==="rejected"&&b.status==="rejected")?"Lookup failed. Check your connection and try again.":"No matches. Try fewer words, like \"kirkland chicken breast\" or \"egg\".";
+  }
+  renderLookup();
+}
+function renderLookup(dayKey){
+  const box=document.getElementById("lookup"); if(!box)return;
+  const k=dayKey||viewDate;
+  let body="";
+  if(LK.sel){
+    const f=LK.sel,u=f.units[LK.unit]||f.units[0],kc=Math.round(u.k*LK.qty),pr=Math.round(u.p*LK.qty);
+    body=`<div class="picked">
+      <div><b>${esc(f.name)}</b><div class="note">${esc([f.brand,f.src].filter(Boolean).join(" · "))}</div></div>
+      <div class="grid2">
+        <label class="field"><span class="label">How many</span><input id="lkQty" type="number" inputmode="decimal" step="0.25" min="0" value="${LK.qty}"></label>
+        <label class="field"><span class="label">Of what</span><select id="lkUnit">${f.units.map((x,i)=>`<option value="${i}" ${i===LK.unit?"selected":""}>${esc(x.label)}</option>`).join("")}</select></label>
+      </div>
+      <div class="row between"><span class="num" style="font-size:20px;font-weight:700">${kc} kcal · ${pr} g protein</span></div>
+      <div class="row"><button class="btn" id="lkAdd" type="button">Add to log</button><button class="btn ghost" id="lkBack" type="button">Back</button></div>
+    </div>`;
+  }else if(LK.busy){body=`<p class="note">Looking up ${esc(LK.q)}…</p>`}
+  else if(LK.err){body=`<p class="note">${esc(LK.err)}</p>`}
+  else if(LK.res.length){
+    body=`<div class="res">${LK.res.map((f,i)=>{const u=f.units[0];return `<button type="button" data-pick="${i}"><b>${esc(f.name)}</b><span>${esc([f.brand,f.src].filter(Boolean).join(" · "))}</span><span class="num">${esc(u.label)}: ${Math.round(u.k)} kcal · ${Math.round(u.p)} g P</span></button>`}).join("")}</div>`;
+  }
+  box.innerHTML=`<h3>Look up food</h3>
+    <form class="row" id="lkForm" autocomplete="off"><input id="lkQ" type="text" placeholder="e.g. 3 eggs, kirkland chicken" aria-label="Food to look up" value="${esc(LK.q&&LK.qty!==1?LK.qty+" "+LK.q:LK.q)}" style="flex:1"><button class="btn" type="submit">Search</button></form>
+    ${body}`;
+  document.getElementById("lkForm").onsubmit=e=>{e.preventDefault();const v=document.getElementById("lkQ").value.trim();if(v)runLookup(v)};
+  box.querySelectorAll("[data-pick]").forEach(b=>b.onclick=()=>{LK.sel=LK.res[+b.dataset.pick];
+    const pref=LK.sel.units.findIndex(x=>!/^1 g$|^100 g$/.test(x.label));LK.unit=pref>=0?pref:0;renderLookup(k)});
+  if(LK.sel){
+    const q=document.getElementById("lkQty"),un=document.getElementById("lkUnit");
+    q.oninput=()=>{LK.qty=Math.max(0,+q.value||0);const f=LK.sel,u=f.units[LK.unit];box.querySelector(".picked .num").textContent=Math.round(u.k*LK.qty)+" kcal · "+Math.round(u.p*LK.qty)+" g protein"};
+    un.onchange=()=>{LK.unit=+un.value;renderLookup(k)};
+    document.getElementById("lkBack").onclick=()=>{LK.sel=null;renderLookup(k)};
+    document.getElementById("lkAdd").onclick=()=>{const f=LK.sel,u=f.units[LK.unit];
+      const short=u.label.split(" · ")[0];
+      getDay(k).foods.push({n:f.name+" ("+LK.qty+" × "+short+")",k:Math.round(u.k*LK.qty),p:Math.round(u.p*LK.qty)});
+      saveDay(k);LK.sel=null;LK.res=[];LK.q="";LK.qty=1;render();toast("Added "+f.name)};
+  }
 }
 
 let tt;function toast(m){const el=document.getElementById("toast");el.textContent=m;el.hidden=false;clearTimeout(tt);tt=setTimeout(()=>el.hidden=true,1600)}
