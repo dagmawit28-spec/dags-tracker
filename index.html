@@ -156,8 +156,17 @@ svg.spark{width:100%;height:120px;display:block}
 (function(){
 "use strict";
 /* ---------- Food library (his staples, label-ish numbers) ---------- */
+/* Fixed 1,500 plan: same meals every day */
+const DAY_PLAN = [
+  {t:"Breakfast",n:"3 eggs + 1 slice low-cal bread",d:"Hot sauce on the eggs is free.",k:300,p:23},
+  {t:"Lunch",n:"Chicken breast + rice",d:"200 g cooked chicken breast, 150 g cooked rice (weigh it), veggies.",k:575,p:66},
+  {t:"Snack",n:"Protein shake (water)",d:"1 scoop, water only.",k:120,p:25},
+  {t:"Dinner",n:"97/3 beef + rice",d:"1/2 lb 97/3 beef, 100 g cooked rice, veggies, sriracha/soy.",k:420,p:54},
+  {t:"Night",n:"Yasso bar",d:"",k:90,p:5}
+];
+const PLAN_KCAL = DAY_PLAN.reduce((a,m)=>a+m.k,0), PLAN_P = DAY_PLAN.reduce((a,m)=>a+m.p,0);
 const STAPLES = [
-  {n:"3 eggs",k:210,p:18},{n:"Chobani yogurt",k:140,p:12},{n:"Protein yogurt",k:140,p:20},
+  {n:"3 eggs",k:210,p:18},
   {n:"Protein shake (water)",k:120,p:25},{n:"Protein shake (milk)",k:250,p:33},
   {n:"Costco chipotle chicken, 1 serving",k:140,p:16},{n:"Chicken breast, 6 oz",k:280,p:52},
   {n:"Salmon fillet",k:250,p:25},{n:"97/3 beef, 1/2 lb",k:260,p:50},
@@ -174,7 +183,7 @@ const LIMIT = [
 ];
 
 /* ---------- State ---------- */
-const DEFAULTS = {fdcKey:"", base:1700, protein:180, gymDays:[1,4], marathon:"", goalWeight:165, goalDate:"2026-12-31", startWeight:196, startDate:"2026-09-15"};
+const DEFAULTS = {fdcKey:"", base:1500, protein:170, gymDays:[1,4], marathon:"", goalWeight:165, goalDate:"2026-12-31", startWeight:196, startDate:"2026-09-15"};
 let settings = {...DEFAULTS};
 const days = {}; // date -> {date,foods,steps,runMi,done,weight}
 let tab = "today";
@@ -203,6 +212,7 @@ function queueSave(id,getData){
     writing[id]=false;
   },700);
 }
+function migrate(){if((+settings.v||0)<2){settings.base=1500;settings.protein=170;settings.v=2;saveSettings()}}
 function saveDay(k){queueSave("d-"+k,()=>JSON.parse(JSON.stringify(getDay(k))))}
 function saveSettings(){queueSave("settings",()=>({...settings}))}
 
@@ -216,7 +226,7 @@ async function connect(){
       if(doc.id==="settings")Object.assign(settings,v);
       else if(doc.id.startsWith("d-")){const k=doc.id.slice(2);days[k]={date:k,foods:[],steps:0,runMi:0,done:[],weight:null,...v}}
     });
-    lsSave(); render();
+    migrate(); lsSave(); render();
   }catch(e){}
 }
 
@@ -307,7 +317,7 @@ function renderToday(){
         <label class="field"><span class="label">Run miles</span><input id="runMi" type="number" inputmode="decimal" step="0.1" min="0" value="${d.runMi||""}" placeholder="0"></label>
         <label class="field"><span class="label">Steps</span><input id="steps" type="number" inputmode="numeric" min="0" value="${d.steps||""}" placeholder="0"></label>
       </div>
-      ${(+d.runMi||0)>=4?`<div class="callout">Your target went up by ${t.extra} for the run. That's the extra. Hungry beyond that after a long run? Eat protein and volume (chicken, salad, yogurt), not mango or bagels.</div>`:""}
+      ${(+d.runMi||0)>=4?`<div class="callout">Your target went up by ${t.extra} for the run. That's the extra. Hungry beyond that after a long run? Add extra rice and a banana. Eat protein and volume (chicken, salad, veggies), not mango or bagels.</div>`:""}
     </section>
 
     <section class="panel" id="lookup"></section>
@@ -320,7 +330,10 @@ function renderToday(){
         <input id="fP" type="number" inputmode="numeric" placeholder="P g" aria-label="Protein grams" min="0">
         <button class="btn" type="submit">Add</button>
       </form>
-      <div class="label">Tap to add</div>
+      <div class="label">Today's plan</div>
+      <div class="chips">${DAY_PLAN.map((f,i)=>`<button class="chip" data-dp="${i}"><b>${esc(f.t)}: ${esc(f.n)}</b><span class="num">${f.k} kcal · ${f.p}g P</span></button>`).join("")}</div>
+      <button class="btn ghost" id="logPlan">Log the whole plan</button>
+      <div class="label">Other foods</div>
       <div class="chips">${STAPLES.map((f,i)=>`<button class="chip" data-s="${i}"><b>${esc(f.n)}</b><span class="num">${f.k} kcal · ${f.p}g P</span></button>`).join("")}</div>
       <div class="label">Watch these</div>
       <div class="chips">${LIMIT.map((f,i)=>`<button class="chip limit" data-l="${i}"><b>${esc(f.n)}</b><span class="num">${f.k} kcal · ${f.p}g P</span></button>`).join("")}</div>
@@ -335,6 +348,8 @@ function renderToday(){
   document.getElementById("nextDay").onclick=()=>{if(viewDate<todayKey()){viewDate=addDays(viewDate,1);render()}};
   const addFood=f=>{d.foods.push({n:f.n,k:+f.k||0,p:+f.p||0});saveDay(k);render();toast("Added "+f.n)};
   view.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>addFood(STAPLES[b.dataset.s]));
+  view.querySelectorAll("[data-dp]").forEach(b=>b.onclick=()=>{const m=DAY_PLAN[b.dataset.dp];addFood({n:m.t+": "+m.n,k:m.k,p:m.p})});
+  document.getElementById("logPlan").onclick=()=>{DAY_PLAN.forEach(m=>d.foods.push({n:m.t+": "+m.n,k:m.k,p:m.p}));saveDay(k);render();toast("Logged the full plan")};
   view.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>addFood(LIMIT[b.dataset.l]));
   view.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{d.foods.splice(+b.dataset.rm,1);saveDay(k);render()});
   view.querySelectorAll("[data-done]").forEach(b=>b.onclick=()=>{const x=b.dataset.done;d.done=d.done.includes(x)?d.done.filter(y=>y!==x):[...d.done,x];saveDay(k);render()});
@@ -371,35 +386,26 @@ function renderPlan(){
 }
 
 function renderEat(){
-  const meals=[
-    ["Breakfast",[
-      ["Protein oats","80 g oats + 1 scoop protein mixed in + berries",470,37],
-      ["Eggs on toast","3 eggs w/ hot sauce + 2 slices low-cal bread",390,28],
-      ["Light","Chobani + rice cake + 1 tbsp PB",295,17]]],
-    ["Lunch",[
-      ["Chicken rice bowl","2 servings chipotle chicken + 1 cup rice + salad",580,39],
-      ["Chicken wraps","6 oz chicken breast in 2 wraps + salad",560,67]]],
-    ["Dinner",[
-      ["Salmon plate","Salmon + 1 cup rice + veggies",500,30],
-      ["Beef rice bowl","1/2 lb 97/3 beef + 1 cup rice + sriracha + soy",470,54]]],
-    ["Snacks (pick 2)",[
-      ["Shake","Protein shake w/ water",120,25],["Protein yogurt","",140,20],["Yasso bar","",90,5],["Fruit cup","",100,1]]]
-  ];
   view.innerHTML=`<div class="wrap">
     <section class="panel">
-      <h2>What to eat</h2>
-      <p class="note">One from each block lands around 1,750–1,950 kcal and 150+ g protein. On long-run days add a bagel with honey or a banana and extra rice. That's where the extra calories go.</p>
-      ${meals.map(([t,opts])=>`<div class="panel" style="padding:12px"><h3>${t}</h3>${opts.map(o=>`<div class="meal"><div class="row between"><b>${esc(o[0])}</b><span class="note num">${o[2]} kcal · ${o[3]}g P</span></div>${o[1]?`<p>${esc(o[1])}</p>`:""}<button class="btn ghost" data-meal='${esc(JSON.stringify({n:o[0],k:o[2],p:o[3]}))}'>Log this today</button></div>`).join("")}</div>`).join("")}
+      <h2>The plan</h2>
+      <p class="note">Same thing every day. ${PLAN_KCAL} kcal, ${PLAN_P} g protein. Weigh the rice and meat. Long-run days: your target goes up on its own, fill it with extra rice and a banana.</p>
+      ${DAY_PLAN.map((m,i)=>`<div class="meal"><div class="row between"><b>${esc(m.t)}</b><span class="note num">${m.k} kcal · ${m.p}g P</span></div><p style="color:var(--ink)">${esc(m.n)}</p>${m.d?`<p>${esc(m.d)}</p>`:""}<button class="btn ghost" data-meal="${i}">Log this today</button></div>`).join("")}
+      <button class="btn" id="logAll">Log the whole day</button>
     </section>
     <section class="panel">
-      <h3>Eat freely</h3>
-      <p class="note">Chicken, salmon, lean beef, eggs, egg whites, protein yogurt, salad, veggies, fruit, zero-cal hot sauce, Celsius.</p>
-      <h3>Measure first</h3>
-      <p class="note">Rice (weigh it), peanut butter (level tbsp), oats, bread, wraps.</p>
-      <h3>Limit</h3>
-      <div class="callout">Dried mango: one 40 g handful, then put the bag away. Bagels, scones, madeleines, fast food: once a week, logged. Alcohol: skip during marathon build.</div>
+      <h3>Rules</h3>
+      <ul class="plain">
+        <li>Hit protein first. Lift heavy on gym days, cut sets not weight.</li>
+        <li>Swaps: chicken ↔ salmon ↔ beef, same weight. Nothing else.</li>
+        <li>Free: veggies, salad, hot sauce, Celsius.</li>
+        <li>Out: dried mango, PB, bagels, cream cheese, cooking butter.</li>
+        <li>Run it 2–3 weeks, then go back up to 1,950.</li>
+      </ul>
     </section></div>`;
-  view.querySelectorAll("[data-meal]").forEach(b=>b.onclick=()=>{const f=JSON.parse(b.dataset.meal);const k=todayKey();getDay(k).foods.push(f);saveDay(k);toast("Logged "+f.n)});
+  const log=ms=>{const k=todayKey();ms.forEach(m=>getDay(k).foods.push({n:m.t+": "+m.n,k:m.k,p:m.p}));saveDay(k)};
+  view.querySelectorAll("[data-meal]").forEach(b=>b.onclick=()=>{const m=DAY_PLAN[+b.dataset.meal];log([m]);toast("Logged "+m.t)});
+  document.getElementById("logAll").onclick=()=>{log(DAY_PLAN);toast("Logged the full plan")};
 }
 
 function renderWeight(){
@@ -443,7 +449,7 @@ function renderWeight(){
         <div><div class="label">Your pace</div><div class="num" style="font-size:22px;font-weight:700">${rate.toFixed(1)} lb/wk</div></div>
         <div><div class="label">Needed for ${settings.goalWeight} by ${parseKey(settings.goalDate).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</div><div class="num" style="font-size:22px;font-weight:700;color:${need>1.5?"var(--bad)":"var(--ink)"}">${need.toFixed(1)} lb/wk</div></div>
       </div>
-      ${need>1.5?`<div class="callout">${need.toFixed(1)} lb a week isn't realistic while training for a marathon without losing muscle and wrecking your runs. At your current pace you'd hit ${settings.goalWeight} around ${proj?parseKey(proj).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—"}. The fastest real fix is logging every day so your 1,950 is actually 1,950.</div>`:`<div class="callout good">On pace. Keep logging.</div>`}
+      ${need>1.5?`<div class="callout">${need.toFixed(1)} lb a week isn't realistic while training for a marathon without losing muscle and wrecking your runs. At your current pace you'd hit ${settings.goalWeight} around ${proj?parseKey(proj).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—"}. The fastest real fix is logging every day so your ${settings.base} is actually ${settings.base}.</div>`:`<div class="callout good">On pace. Keep logging.</div>`}
     </section>
     <section class="panel"><h3>Weigh-ins</h3><div class="list">${all.slice().reverse().map(p=>`<div class="item"><span class="name">${parseKey(p.k).toLocaleDateString(undefined,{month:"short",day:"numeric"})}${p.k===settings.startDate?" (start)":""}</span><span class="num">${p.w} lb</span><span></span></div>`).join("")}</div></section>
   </div>`;
@@ -574,7 +580,7 @@ function renderLookup(dayKey){
 let tt;function toast(m){const el=document.getElementById("toast");el.textContent=m;el.hidden=false;clearTimeout(tt);tt=setTimeout(()=>el.hidden=true,1600)}
 
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{tab=b.dataset.tab;if(tab==="today")viewDate=todayKey();render();window.scrollTo(0,0)});
-lsLoad(); render();
+lsLoad(); migrate(); render();
 if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>{})}
 })();
 </script>
