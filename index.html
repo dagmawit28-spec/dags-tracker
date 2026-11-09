@@ -183,7 +183,7 @@ const LIMIT = [
 ];
 
 /* ---------- State ---------- */
-const DEFAULTS = {fdcKey:"", base:1500, protein:170, gymDays:[1,4], marathon:"", goalWeight:165, goalDate:"2026-12-31", startWeight:196, startDate:"2026-09-15"};
+const DEFAULTS = {fdcKey:"", base:1500, protein:170, gymDays:[2,4], runDays:[5,0], marathon:"", goalWeight:165, goalDate:"2026-12-31", startWeight:196, startDate:"2026-09-15"};
 let settings = {...DEFAULTS};
 const days = {}; // date -> {date,foods,steps,runMi,done,weight}
 let tab = "today";
@@ -212,7 +212,12 @@ function queueSave(id,getData){
     writing[id]=false;
   },700);
 }
-function migrate(){if((+settings.v||0)<2){settings.base=1500;settings.protein=170;settings.v=2;saveSettings()}}
+function migrate(){let ch=false;
+  if((+settings.v||0)<2){settings.base=1500;settings.protein=170;settings.v=2;ch=true}
+  if((+settings.v||0)<3){settings.gymDays=[2,4];settings.runDays=[5,0];settings.v=3;ch=true}
+  if(ch)saveSettings()}
+/* One-off scheduled runs: date -> miles */
+const SPECIAL_RUNS = {"2026-11-10":16};
 function saveDay(k){queueSave("d-"+k,()=>JSON.parse(JSON.stringify(getDay(k))))}
 function saveSettings(){queueSave("settings",()=>({...settings}))}
 
@@ -234,7 +239,8 @@ async function connect(){
 function targetFor(k){
   const d=getDay(k); const mi=Number(d.runMi)||0;
   let extra=0, why="";
-  if(mi>=8){extra=400;why="long run ("+mi+" mi)"}
+  if(mi>=14){extra=800;why="long run ("+mi+" mi)"}
+  else if(mi>=8){extra=400;why="long run ("+mi+" mi)"}
   else if(mi>=4){extra=250;why="run ("+mi+" mi)"}
   else if(mi>0){extra=150;why="short run"}
   return {kcal:settings.base+extra, extra, why};
@@ -251,24 +257,22 @@ function phase(k){
   return {name:"build",out};
 }
 function planFor(k){
-  const dow=parseKey(k).getDay(); const ph=phase(k); const gym=settings.gymDays.includes(dow);
-  const nonGym=[2,4,3,5].filter(x=>!settings.gymDays.includes(x));
-  const easyDays=nonGym.slice(0,2);
+  const dow=parseKey(k).getDay(); const ph=phase(k);
+  const gym=settings.gymDays.includes(dow), run=(settings.runDays||[5,0]).includes(dow);
   if(ph.name==="race")return {type:"race",title:"Race day",detail:"Eat your normal pre-run breakfast 3 hrs before. Carbs every 30–45 min on course. No deficit today or tomorrow."};
   if(ph.name==="after"&&ph.out>-7)return {type:"rest",title:"Recovery week",detail:"Walks only for a few days. Eat at maintenance this week, then go back to the cut."};
-  if(dow===6){
-    const dist=ph.name==="build"?"10–16 mi, add ~1 mi a week":ph.name==="taper"?"8–12 mi, easy":"3 mi shakeout";
-    return {type:"run",title:"Long run",detail:dist+". Eat carbs the night before and right after. Your target goes up when you log the miles."};
-  }
+  const sp=SPECIAL_RUNS[k];
+  if(sp)return {type:"run",title:"Long run: "+sp+" mi",detail:"Skip the lift today. Eat carbs the night before. Carbs every 45 min during (gels or chews). Log the miles and your target goes up by 800, eat it: extra rice, a banana, a bagel with honey."};
+  if(SPECIAL_RUNS[addDays(k,-1)]>=14)return {type:"rest",title:"Recovery",detail:"Day after the long run. Walk only, 30 min easy. Hit your protein."};
   if(gym){
-    const legs=ph.name==="build"?"Lift: full body. Keep legs to 2 moves, 3 sets, so Saturday isn't wrecked.":"Lift: upper body only. No heavy legs inside 3 weeks of the race.";
-    return {type:"lift",title:"Gym day",detail:legs+" ~50 min. Optional 15–20 min incline walk after."};
+    const legs=ph.name==="build"?"Lift: full body. Keep legs to 2 moves, 3 sets, so your runs aren't wrecked.":"Lift: upper body only. No heavy legs inside 3 weeks of the race.";
+    return {type:"lift",title:"Gym day",detail:legs+" Heavy weight, fewer sets. ~50 min."};
   }
-  if(easyDays.includes(dow)){
-    const t=dow===easyDays[1]&&ph.name==="build"?"4–6 mi, last 2 mi at goal marathon pace":"3–5 mi easy, conversational pace";
+  if(run){
+    const t=dow===0?(ph.name==="build"?"6–10 mi easy, conversational pace":"4–6 mi easy"):"3–5 mi easy, conversational pace";
     return {type:"run",title:"Run",detail:t+"."};
   }
-  if(dow===0)return {type:"rest",title:"Rest + walk",detail:"Full rest from training. Aim for 8k+ steps. Prep chicken and rice for the week."};
+  if(dow===6)return {type:"rest",title:"Rest + walk",detail:"Full rest from training. Aim for 8k+ steps. Prep chicken and rice for the week."};
   return {type:"home",title:"Home circuit (optional)",detail:"Pushups 3×max, pike pushups 3×10, chair dips 3×12, plank 3×45 s, leg raises 3×12. Or just rest if you slept badly."};
 }
 
@@ -370,7 +374,7 @@ function renderPlan(){
   view.innerHTML=`<div class="wrap">
     <section class="panel">
       <div class="row between"><h2>This week</h2><span class="pill accent">${ph.name}${ph.out>0?` · ${ph.out} days out`:""}</span></div>
-      <p class="note">Gym days: <b>${gymNames||"none set"}</b>. Three runs, two lifts, one rest day. Change gym days in Setup.</p>
+      <p class="note">Gym days: <b>${gymNames||"none set"}</b>. Runs Fri + Sun, lifts Tue + Thu. Change gym days in Setup.</p>
       <div class="week">${rows}</div>
     </section>
     <section class="panel">
@@ -472,7 +476,7 @@ function renderSetup(){
     </div>
     <label class="field"><span class="label">Food lookup key (optional)</span><input id="sKey" type="text" autocomplete="off" value="${esc(settings.fdcKey||"")}" placeholder="Leave blank to use the free shared key"></label>
     <p class="note">Without a key you get about 30 lookups an hour. A free key from api.data.gov/signup removes the limit. Paste it here.</p>
-    <p class="note">Run days add calories on their own: +150 short run, +250 for 4–8 mi, +400 for 8+ mi. Steps are entered by hand from your phone's Health app.</p>
+    <p class="note">Run days add calories on their own: +150 short run, +250 for 4–8 mi, +400 for 8–14 mi, +800 for 14+ mi. Steps are entered by hand from your phone's Health app.</p>
     <p class="note">Saving on this phone.</p>
   </section>
   <section class="panel"><h3>Backup</h3>
